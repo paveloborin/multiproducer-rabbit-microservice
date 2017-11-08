@@ -1,0 +1,38 @@
+[database]
+host = "192.168.1.1"
+ports = 3306
+user = "root"
+password = "1"
+
+[rabbit]
+host = "190.168.1.1"
+ports = 6638
+user = "root"
+password = "23211"
+
+[producer]
+exchange_name = "test"
+instance_count = 2
+
+[collectors]
+[collectors.cancel]
+handler = "Cancel"
+repeat_period = 300
+sql_query_file="cancelByUserRequest.sql"
+[collectors.cancel.params]
+reason = "requestFromUser"
+
+[collectors.run]
+handler = "Run"
+repeat_period = 100
+sql_query_file="run.sql"
+[collectors.run.params]
+reason = "requestFromUser"
+description = "some text"
+
+[collectors.notify]
+handler = "Notify"
+repeat_period = 200
+sql_query_file="norify.sql"
+[collectors.notify.params]
+reason = "requestFromUser"

@@ -1,0 +1,24 @@
+[database]
+host = "178.168.1.1"
+ports = 3306
+user = "root"
+password = "1"
+
+[rabbit]
+host = "178.168.1.1"
+ports = 3306
+user = "root"
+password = "1"
+
+[producer]
+exchange_name = "test"
+instance_count = 2
+
+
+[collectors]
+[collectors.cancel]
+handler = "Cancel"
+repeat_period = 300
+sql_query_file="cancelByUserRequest.sql"
+[collectors.cancel.params]
+reason = "requestFromUser"
