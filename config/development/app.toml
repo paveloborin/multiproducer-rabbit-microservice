@@ -1,5 +1,5 @@
 [database]
-host = "192.168.1.1"
+host = "localhost"
 ports = 3306
 user = "root"
 password = "1"
@@ -18,22 +18,22 @@ instance_count = 2
 [collectors]
 [collectors.cancel]
 handler = "Cancel"
-repeat_period = 300
-sql_query_file="cancelByUserRequest.sql"
+repeat_period = 1
+sql_query_file="./config/sql/cancelByUserRequest.sql"
 [collectors.cancel.params]
 reason = "requestFromUser"
 
 [collectors.run]
 handler = "Run"
-repeat_period = 100
-sql_query_file="run.sql"
+repeat_period = 2
+sql_query_file="./config/sql/cancelByUserRequest.sql"
 [collectors.run.params]
 reason = "requestFromUser"
 description = "some text"
 
 [collectors.notify]
 handler = "Notify"
-repeat_period = 200
-sql_query_file="norify.sql"
+repeat_period = 1
+sql_query_file="./config/sql/cancelByUserRequest.sql"
 [collectors.notify.params]
 reason = "requestFromUser"

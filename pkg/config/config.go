@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"time"
+	"io/ioutil"
 )
 
 //Конфигурации
@@ -67,7 +68,19 @@ func GetConfig() (*Configuration, error) {
 			return &Configuration{}, err
 		}
 
-		collector := CollectorConfig{CollectorName: name, TimePeriod: time.Duration(timePeriod) * time.Second, Params: params, SqlQuery: fmt.Sprint(dataConvertedToMap["sql_query_file"]), HandlerName: fmt.Sprint(dataConvertedToMap["handler"])}
+		collector := CollectorConfig{}
+		collector.CollectorName = name
+		collector.TimePeriod = time.Duration(timePeriod) * time.Minute
+		collector.Params = params
+		collector.HandlerName = fmt.Sprint(dataConvertedToMap["handler"])
+
+		fileWithSqlQuery, err := ioutil.ReadFile(fmt.Sprint(dataConvertedToMap["sql_query_file"]))
+		if nil != err {
+			return &Configuration{}, err
+		}
+
+		collector.SqlQuery = string(fileWithSqlQuery)
+
 		collectors = append(collectors, collector)
 	}
 
