@@ -5,15 +5,17 @@ import (
 	"strconv"
 	"fmt"
 	"os"
+	"time"
 )
 
 //Конфигурации
 //Конфигурация коннетов к базе, к реббиту
 type ResourceConfig struct {
-	Host string
-	Port int
-	User string
-	Pass string
+	Host   string
+	Port   int
+	User   string
+	Pass   string
+	DbName string
 }
 
 //Конфигурация продъюсеров: название обменника, кол-во одновременно запущенных продьюсеров
@@ -26,7 +28,7 @@ type ProducerConfig struct {
 type CollectorConfig struct {
 	CollectorName string
 	HandlerName   string
-	TimePeriod    int
+	TimePeriod    time.Duration
 	SqlQuery      string
 	Params        map[string]string
 }
@@ -46,7 +48,7 @@ func GetConfig() (*Configuration, error) {
 		return &Configuration{}, err
 	}
 
-	dbConfig := ResourceConfig{Host: viper.GetString("database.host"), Port: viper.GetInt("database.ports"), User: viper.GetString("database.user"), Pass: viper.GetString("database.password")}
+	dbConfig := ResourceConfig{DbName: viper.GetString("database.db_name"), Host: viper.GetString("database.host"), Port: viper.GetInt("database.ports"), User: viper.GetString("database.user"), Pass: viper.GetString("database.password")}
 	rabbitConfig := ResourceConfig{Host: viper.GetString("rabbit.host"), Port: viper.GetInt("rabbit.ports"), User: viper.GetString("rabbit.user"), Pass: viper.GetString("rabbit.password")}
 	producerConfig := ProducerConfig{ExchangeName: viper.GetString("producer.exchange_name"), InstanceCount: viper.GetInt("producer.instance_count")}
 
@@ -60,12 +62,12 @@ func GetConfig() (*Configuration, error) {
 			params[k] = fmt.Sprint(v)
 		}
 
-		timePeriod, err := strconv.Atoi(fmt.Sprint(dataConvertedToMap["repeat_period"]))
+		timePeriod, err := strconv.ParseInt(fmt.Sprint(dataConvertedToMap["repeat_period"]), 10, 8)
 		if nil != err {
 			return &Configuration{}, err
 		}
 
-		collector := CollectorConfig{CollectorName: name, TimePeriod: timePeriod, Params: params, SqlQuery: fmt.Sprint(dataConvertedToMap["sql_query_file"]), HandlerName: fmt.Sprint(dataConvertedToMap["handler"])}
+		collector := CollectorConfig{CollectorName: name, TimePeriod: time.Duration(timePeriod) * time.Second, Params: params, SqlQuery: fmt.Sprint(dataConvertedToMap["sql_query_file"]), HandlerName: fmt.Sprint(dataConvertedToMap["handler"])}
 		collectors = append(collectors, collector)
 	}
 

@@ -6,10 +6,10 @@ import (
 )
 
 type Message struct {
-	id          int
-	handlerName string
-	params      map[string]string
-	timeStamp   int
+	Id          int
+	HandlerName string
+	Params      map[string]string
+	TimeStamp   int
 }
 
 type Storage struct {
@@ -45,6 +45,6 @@ func (s *Storage) Get(timeStamp int) []Message {
 
 func (s *Storage) Add(data Message) {
 	s.mx.Lock()
-	s.data[data.timeStamp] = data
+	s.data[data.TimeStamp] = data
 	s.mx.Unlock()
 }

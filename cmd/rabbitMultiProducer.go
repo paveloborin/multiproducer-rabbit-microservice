@@ -5,6 +5,8 @@ import (
 	"sync"
 	"github.com/paveloborin/multiproducer-rabbit-microservice/pkg/cache"
 	"github.com/paveloborin/multiproducer-rabbit-microservice/pkg/config"
+	"database/sql"
+	"time"
 )
 
 func main() {
@@ -21,7 +23,10 @@ func main() {
 
 	var collectors = []<-chan cache.Message{}
 
-	//TODO создаем коннект к базе
+	db, err := createDbConnect(&configuration.Db)
+	if nil != err {
+		fmt.Errorf("error db connect: %s", err)
+	}
 
 	//TODO создаем коннект к реббиту
 
@@ -29,8 +34,7 @@ func main() {
 
 	for _, collectorConfig := range configuration.Collectors {
 		//Коллекторы наполняют свои очереди
-		//TODO пробросить коннект к базе
-		collectors = append(collectors, runCollector(collectorConfig, done))
+		collectors = append(collectors, runCollector(collectorConfig, done, db))
 	}
 
 	//все очереди коллекторов собираются в одну
@@ -40,6 +44,20 @@ func main() {
 	//на выходе из кеша стоит горутина, которая на основании времени вынимает сообщение из кеша и помещает его в очередь продъюсера (пролъюсеров может быть несколько)
 	//продъюсеры умеют пересылать получаесое сообщение в RabbitMQ
 
+}
+
+/**
+создаем коннект к базе
+ */
+func createDbConnect(configDb *config.ResourceConfig) (*sql.DB, error) {
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8", configDb.User, configDb.Pass, configDb.Host, configDb.Port, configDb.DbName)
+
+	db, err := sql.Open("mysql", dsn)
+	if nil != err {
+		return nil, err
+	}
+
+	return db, nil
 }
 
 func sendCollectorsMessagesToCache(done <-chan bool, cacheIn <-chan cache.Message) {
@@ -60,24 +78,45 @@ func sendCollectorsMessagesToCache(done <-chan bool, cacheIn <-chan cache.Messag
 	}(cacheIn, done, cacheStorage)
 }
 
-func runCollector(config config.CollectorConfig, done <-chan bool) (chan cache.Message) {
+func runCollector(config config.CollectorConfig, done <-chan bool, db *sql.DB) (chan cache.Message) {
 	cacheMessageChan := make(chan cache.Message)
 
-	//Горутина крутит в цикле следующее: запрос в базу, отправка в кеш
-	//Новый цикл не начинается пока не закончится предыддущий и не выйдет время
-	go func(chan cache.Message, <-chan bool) {
+	go func(chan cache.Message, <-chan bool, *sql.DB, *config.CollectorConfig) {
 		for {
+			//Горутина крутит в цикле  запрос в базу, отправка результата запроса в кеш
 			select {
 			//внешний сигнал закрытия горутины
 			case <-done:
 				return
 			default:
-				//обращение к базе
-				cacheMessageChan <- cache.Message{}
+				//TODO достать запрос коллектора из конфига
+				start := time.Now()
+				rows, err := db.Query("SELECT * FROM userinfo")
+				if nil != err {
+					fmt.Errorf("can't read from db %s", err)
+				}
+
+				for rows.Next() {
+					var id int
+					var timestamp int
+
+					err = rows.Scan(&id, &timestamp)
+					if nil != err {
+						fmt.Errorf("can't parse sql-query result: %s", err)
+					}
+
+					cacheMessageChan <- cache.Message{Id: id, TimeStamp: timestamp, HandlerName: config.HandlerName, Params: config.Params}
+				}
+				//Новый цикл не начинается пока не закончится предыддущий и не выйдет время
+				elapsed := time.Since(start)
+				if elapsed < config.TimePeriod {
+					time.Sleep(config.TimePeriod)
+				}
+
 			}
 		}
 
-	}(cacheMessageChan, done)
+	}(cacheMessageChan, done, db, &config)
 
 	return cacheMessageChan
 }
