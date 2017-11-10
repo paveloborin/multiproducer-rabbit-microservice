@@ -8,7 +8,8 @@ import (
 	"database/sql"
 	"time"
 	"log"
-	_"github.com/go-sql-driver/mysql"
+	"github.com/streadway/amqp"
+	_ "github.com/go-sql-driver/mysql"
 )
 
 func main() {
@@ -27,7 +28,33 @@ func main() {
 		log.Fatalf("error db connect: %s", err)
 	}
 
-	//TODO создаем коннект к реббиту
+	defer db.Close()
+
+	//создаем коннект к реббиту
+	rabbitConn, err := amqp.Dial("amqp://guest:guest@rabbit.local:5672/")
+	if nil != err {
+		log.Fatalf("error rabbit connect: %s", err)
+	}
+	defer rabbitConn.Close()
+
+	ch, err := rabbitConn.Channel()
+	if nil != err {
+		log.Fatalf("failed to open a channel: %s", err)
+	}
+	defer ch.Close()
+
+	q, err := ch.QueueDeclare(
+		"goProcessing", // name
+		false,          // durable
+		false,          // delete when unused
+		false,          // exclusive
+		false,          // no-wait
+		nil,            // arguments
+	)
+
+	if nil != err {
+		log.Fatalf("Failed to declare a queue: %s", err)
+	}
 
 	//запускаем для каждого коллектора горутину
 	for _, collectorConfig := range configuration.Collectors {
@@ -41,7 +68,50 @@ func main() {
 	cacheStorage := cache.NewStorage()
 	sendCollectorsMessagesToCache(done, cacheIn, cacheStorage)
 	//на выходе из кеша стоит горутина, которая на основании времени вынимает сообщение из кеша и помещает его в очередь продъюсера (пролъюсеров может быть несколько)
+	cacheOut := make(chan cache.Message)
+
+	go func(done <-chan bool, cacheOut chan<- cache.Message) {
+		for {
+			select {
+			//внешний сигнал закрытия горутины
+			case <-done:
+				return
+			default:
+				for _, mes := range cacheStorage.Get(int(time.Now().Unix())) {
+					cacheOut <- mes
+				}
+				time.Sleep(100 * time.Millisecond)
+
+			}
+		}
+	}(done, cacheOut)
+
 	//продъюсеры умеют пересылать получаесое сообщение в RabbitMQ
+	go func(done <-chan bool, ch *amqp.Channel, cacheOut <-chan cache.Message) {
+		for {
+			select {
+			//внешний сигнал закрытия горутины
+			case <-done:
+				return
+			case mes := <-cacheOut:
+				body := fmt.Sprint(mes)
+				err = ch.Publish(
+					"",     // exchange
+					q.Name, // routing key
+					false,  // mandatory
+					false,  // immediate
+					amqp.Publishing{
+						ContentType: "text/plain",
+						Body:        []byte(body),
+					})
+				log.Printf("Message publish to rabbit: %s", body)
+
+				if nil != err {
+					log.Fatalf("Failed to publish a message: %s", err)
+				}
+			}
+		}
+	}(done, ch, cacheOut)
 
 	select {
 	//внешний сигнал закрытия горутины
@@ -58,6 +128,9 @@ func createDbConnect(configDb *config.ResourceConfig) (*sql.DB, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%v)/%s?charset=utf8", configDb.User, configDb.Pass, configDb.Host, configDb.Port, configDb.DbName)
 
 	db, err := sql.Open("mysql", dsn)
+	db.SetConnMaxLifetime(time.Minute * 1);
+	db.SetMaxIdleConns(0);
+	db.SetMaxOpenConns(5);
 	if nil != err {
 		return nil, err
 	}

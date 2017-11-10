@@ -1,5 +1,5 @@
 [database]
-host = "localhost"
+host = "192.168.99.100"
 ports = 3306
 user = "root"
 password = "1"
