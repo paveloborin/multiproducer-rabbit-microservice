@@ -3,13 +3,16 @@ package main
 import (
 	"fmt"
 	"sync"
-	"github.com/paveloborin/multiproducer-rabbit-microservice/pkg/cache"
-	"github.com/paveloborin/multiproducer-rabbit-microservice/pkg/config"
-	"database/sql"
+	"encoding/json"
 	"time"
 	"log"
+
 	"github.com/streadway/amqp"
 	_ "github.com/go-sql-driver/mysql"
+
+	"github.com/paveloborin/multiproducer-rabbit-microservice/pkg/cache"
+	"github.com/paveloborin/multiproducer-rabbit-microservice/pkg/config"
+	"github.com/paveloborin/multiproducer-rabbit-microservice/pkg/dbProxy"
 )
 
 func main() {
@@ -23,33 +26,25 @@ func main() {
 
 	var collectors = []<-chan cache.Message{}
 
-	db, err := createDbConnect(&configuration.Db)
-	if nil != err {
-		log.Fatalf("error db connect: %s", err)
-	}
+	dbProxy := dbProxy.GetConfig(&configuration.Db)
+	defer dbProxy.Close()
 
-	defer db.Close()
+	amqpConn := createAmqpConnect(configuration.Rabbit)
+	defer amqpConn.Close()
 
-	//создаем коннект к реббиту
-	rabbitConn, err := amqp.Dial("amqp://guest:guest@rabbit.local:5672/")
-	if nil != err {
-		log.Fatalf("error rabbit connect: %s", err)
-	}
-	defer rabbitConn.Close()
-
-	ch, err := rabbitConn.Channel()
+	amqpChannel, err := amqpConn.Channel()
 	if nil != err {
 		log.Fatalf("failed to open a channel: %s", err)
 	}
-	defer ch.Close()
+	defer amqpChannel.Close()
 
-	q, err := ch.QueueDeclare(
-		"goProcessing", // name
-		false,          // durable
-		false,          // delete when unused
-		false,          // exclusive
-		false,          // no-wait
-		nil,            // arguments
+	queue, err := amqpChannel.QueueDeclare(
+		configuration.Producer.ExchangeName, // name
+		false,                               // durable
+		false,                               // delete when unused
+		false,                               // exclusive
+		false,                               // no-wait
+		nil,                                 // arguments
 	)
 
 	if nil != err {
@@ -59,7 +54,7 @@ func main() {
 	//запускаем для каждого коллектора горутину
 	for _, collectorConfig := range configuration.Collectors {
 		//Коллекторы наполняют свои очереди
-		collectors = append(collectors, runCollector(collectorConfig, done, db))
+		collectors = append(collectors, runCollector(collectorConfig, done, dbProxy))
 	}
 
 	//все очереди коллекторов собираются в одну
@@ -94,14 +89,18 @@ func main() {
 			case <-done:
 				return
 			case mes := <-cacheOut:
-				body := fmt.Sprint(mes)
+				body, _ := json.Marshal(mes)
+				if err != nil {
+					fmt.Println(err)
+					break
+				}
 				err = ch.Publish(
-					"",     // exchange
-					q.Name, // routing key
-					false,  // mandatory
-					false,  // immediate
+					"",         // exchange
+					queue.Name, // routing key
+					false,      // mandatory
+					false,      // immediate
 					amqp.Publishing{
-						ContentType: "text/plain",
+						ContentType: "application/json",
 						Body:        []byte(body),
 					})
 				log.Printf("Message publish to rabbit: %s", body)
@@ -111,7 +110,7 @@ func main() {
 				}
 			}
 		}
-	}(done, ch, cacheOut)
+	}(done, amqpChannel, cacheOut)
 
 	select {
 	//внешний сигнал закрытия горутины
@@ -122,20 +121,16 @@ func main() {
 }
 
 /**
-создаем коннект к базе
+создаем коннект к реббиту
  */
-func createDbConnect(configDb *config.ResourceConfig) (*sql.DB, error) {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%v)/%s?charset=utf8", configDb.User, configDb.Pass, configDb.Host, configDb.Port, configDb.DbName)
+func createAmqpConnect(amqpConfig config.ResourceConfig) *amqp.Connection {
 
-	db, err := sql.Open("mysql", dsn)
-	db.SetConnMaxLifetime(time.Minute * 1);
-	db.SetMaxIdleConns(0);
-	db.SetMaxOpenConns(5);
+	amqpConn, err := amqp.Dial(fmt.Sprintf("amqp://%s:%s@%s:%v/", amqpConfig.User, amqpConfig.Pass, amqpConfig.Host, amqpConfig.Port))
 	if nil != err {
-		return nil, err
+		log.Fatalf("error rabbit connect: %s", err)
 	}
 
-	return db, nil
+	return amqpConn
 }
 
 func sendCollectorsMessagesToCache(done <-chan bool, cacheIn <-chan cache.Message, cacheStorage *cache.Storage) {
@@ -154,10 +149,10 @@ func sendCollectorsMessagesToCache(done <-chan bool, cacheIn <-chan cache.Messag
 	}(cacheIn, done, cacheStorage)
 }
 
-func runCollector(collectorConfig config.CollectorConfig, done <-chan bool, db *sql.DB) (chan cache.Message) {
+func runCollector(collectorConfig config.CollectorConfig, done <-chan bool, db *dbProxy.DbProxy) (chan cache.Message) {
 	cacheMessageChan := make(chan cache.Message)
 
-	go func(chan cache.Message, <-chan bool, *sql.DB, config.CollectorConfig) {
+	go func(chan cache.Message, <-chan bool, *dbProxy.DbProxy, config.CollectorConfig) {
 		for {
 			//Горутина крутит в цикле  запрос в базу, отправка результата запроса в кеш
 			select {
