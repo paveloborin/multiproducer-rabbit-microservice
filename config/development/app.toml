@@ -25,7 +25,7 @@ reason = "requestFromUser"
 
 [collectors.run]
 handler = "Run"
-repeat_period = 1
+repeat_period = 2
 sql_query_file="./config/sql/cancelByUserRequest.sql"
 [collectors.run.params]
 reason = "requestFromUser"
@@ -33,7 +33,7 @@ description = "some text"
 
 [collectors.notify]
 handler = "Notify"
-repeat_period = 1
+repeat_period = 3
 sql_query_file="./config/sql/cancelByUserRequest.sql"
 [collectors.notify.params]
 reason = "requestFromUser"

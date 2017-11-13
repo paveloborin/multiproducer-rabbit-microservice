@@ -13,12 +13,10 @@ type DbProxy struct {
 	config *config.ResourceConfig
 }
 
-func GetConfig(configDb *config.ResourceConfig) (*DbProxy) {
+func InitDbConnection(configDb *config.ResourceConfig) (*DbProxy, error) {
 	db, err := createConnect(configDb)
-	if nil != err {
-		log.Fatalf("error db connect: %s", err)
-	}
-	return &DbProxy{db: db, config: configDb}
+
+	return &DbProxy{db: db, config: configDb}, err
 
 }
 
